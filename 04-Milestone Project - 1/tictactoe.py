@@ -1,7 +1,9 @@
 from pprint import pprint
 import inquirer
+import curses
+import numpy as np
 
-gameArea = [[1, 0, -1], [0, 0, 0], [-1, 0, 0]]
+gameArea = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
 
 options = {
     "dark_mode": True,
@@ -11,27 +13,73 @@ options = {
 # -1 represents O
 # so 3 is win for X
 # and -3 is win for O
-def render():
-    for row in gameArea:
-        rowCharacters = []
-        for symbol in row:
-            char = " "
-            if(symbol == 1):
-                char = "X"
-            if(symbol == -1):
-                char = "O"
-            rowCharacters.append(char)
-        rowStylised = " | ".join(rowCharacters)
-        if(options["horizontal_lines"]):
-            print("---------")
-        print(rowStylised)
-    
-    if(options["horizontal_lines"]):
-        print("---------")
-    
+def render(stdscr):
+    curses.curs_set(0)
+    stdscr.keypad(True)
+
+    while True:
+        gameArea[:] = [[0, 0, 0] for _ in range(3)]
+        c_row, c_col = 0, 0
+        current_player = "X"
+
+        while True:
+            stdscr.clear()
+            stdscr.addstr(0, 0, "Arrow keys: move | Enter: select | q: quit")
+            stdscr.addstr(2, 0, f"Turn: {current_player}")
+
+            board_top = 4
+            row_spacing = 2 if options["horizontal_lines"] else 1
+            for row_index, row in enumerate(gameArea):
+                screen_row = board_top + row_index * row_spacing
+                for col_index, value in enumerate(row):
+                    char = "X" if value == 1 else "O" if value == -1 else " "
+                    if row_index == c_row and col_index == c_col:
+                        stdscr.addstr(screen_row, 1 + col_index * 4, f" {char} ", curses.A_REVERSE)
+                    else:
+                        stdscr.addstr(screen_row, 1 + col_index * 4, f" {char} ")
+                    if col_index < 2:
+                        stdscr.addstr(screen_row, 4 + col_index * 4, "|")
+
+                if options["horizontal_lines"] and row_index < 2:
+                    stdscr.addstr(screen_row + 1, 1, "---+---+---")
+
+            winner = checkWin()
+            is_draw = winner is None and all(cell != 0 for row in gameArea for cell in row)
+            if winner is not None or is_draw:
+                result = f"{winner.upper()} wins!" if winner else "It's a draw!"
+                stdscr.addstr(0, 0, result)
+                stdscr.addstr(2, 0, "r: Replay | q: Exit")
+                stdscr.refresh()
+
+                while True:
+                    key = stdscr.getch()
+                    if key in (ord("r"), ord("R")):
+                        break
+                    if key in (ord("q"), ord("Q")):
+                        return
+                break
+
+            stdscr.refresh()
+            key = stdscr.getch()
+
+            if key == curses.KEY_UP and c_row > 0:
+                c_row -= 1
+            elif key == curses.KEY_DOWN and c_row < 2:
+                c_row += 1
+            elif key == curses.KEY_LEFT and c_col > 0:
+                c_col -= 1
+            elif key == curses.KEY_RIGHT and c_col < 2:
+                c_col += 1
+            elif key in (10, 13, curses.KEY_ENTER):
+                if gameArea[c_row][c_col] == 0:
+                    gameArea[c_row][c_col] = 1 if current_player == "X" else -1
+                    current_player = "O" if current_player == "X" else "X"
+            elif key in (ord("q"), ord("Q")):
+                return
 
 def start_game():
-    render()
+    curses.wrapper(render)
+    # render()
 
 def renderEmptySpace(height):
     n = 0
@@ -136,8 +184,26 @@ def sub_menu(menu):
             sub_menu("Settings")
     
 def checkWin():
-    for row in gameArea:
-        for item in row:
-            sum # placeholders for now
+    diagonal = np.asarray(gameArea)
+    if(np.trace(diagonal) == 3):
+        return 'x'
+    if(np.trace(diagonal) == -3):
+        return 'o'
+    
+    anti_diagonal = np.fliplr(diagonal)
+    if(np.trace(anti_diagonal) == 3):
+        return 'x'
+    if(np.trace(anti_diagonal) == -3):
+        return 'o'
 
+    for totals in (np.sum(diagonal, axis=1), np.sum(diagonal, axis=0)):
+        if np.any(totals == 3):
+            return 'x'
+        if np.any(totals == -3):
+            return 'o'
+
+    
+    
+    return None
+            
 main_menu()
