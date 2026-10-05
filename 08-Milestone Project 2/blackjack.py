@@ -37,13 +37,14 @@ class Hand():
         for card in self.cards:
             deck.append(self.cards.pop)
 
-    def hit():
-        # self.cards append from deck
-        # Take card
-        pass
+    def busts(self):
+        return self.value() > 21
 
-    def stand():
-        pass
+    def hit(self, deck):
+        self.takeCard(deck.drawCard())
+
+    def stand(self):
+        return self.value()
 
     def __str__(self):
         str = ""
@@ -97,31 +98,19 @@ while(True):
     playerBank = Account('Igrachut',100)
     casinoBank = CasinoBalance(0)
 
-    # Create & shuffle the deck, deal two cards to each player
-    tableDeck = Deck()
-
-    tableDeck.shuffle()
-
-    # print(tableDeck.deck)
-
-    playerHand = Hand()
-
-    playerHand.takeCard(tableDeck.drawCard())
-    playerHand.takeCard(tableDeck.drawCard())
-    tableDeck.deck.pop()
-
-    dealerHand = Hand()
-    dealerHand.takeCard(tableDeck.drawCard())
-    dealerHand.takeCard(tableDeck.drawCard())
-
-
-    
-        
-    # Set up the Player's chips
     print("Your balance: ", playerBank.balance)
     buyingChips = True # True represents if the user is still buying chips
-    while(buyingChips):
-        chipBuyingCount = int(input("How many chips do you need to purchase? (number): "))
+    while buyingChips:
+        try:
+            chipBuyingCount = int(input("How many chips do you need to purchase? (number): "))
+        except ValueError:
+            print("Please enter a valid number.")
+            continue
+
+        if chipBuyingCount <= 0:
+            print("Chip amount must be greater than zero.")
+            continue
+
         withdrawResponse = playerBank.withdraw(chipBuyingCount)
         if(withdrawResponse == "Withdraw Accepted"):
             casinoBank.deposit(chipBuyingCount)
@@ -132,63 +121,96 @@ while(True):
 
     print(f"You have {casinoBank.chips} chips")
 
-    # Prompt the Player for their bet
-    bettingChips = True # True represents if the user is still betting chips
-    while(bettingChips):
-        chipBuyingCount = int(input("Betting amount (number): "))
-        withdrawResponse = casinoBank.withdraw(chipBuyingCount)
-        if(withdrawResponse == "Withdraw Accepted"):
-            casinoBank.deposit(chipBuyingCount)
+    bettingChips = True
+    while bettingChips:
+        try:
+            betAmount = int(input("Betting amount (number): "))
+        except ValueError:
+            print("Please enter a valid number.")
+            continue
+
+        if betAmount <= 0:
+            print("Your bet must be greater than zero.")
+            continue
+
+        withdrawResponse = casinoBank.withdraw(betAmount)
+        if withdrawResponse == "Withdraw Accepted":
+            pot = betAmount
             bettingChips = False
         elif(withdrawResponse.startswith("Withdraw Declined")):
             print("You don't have enough chips!")
 
-    
-    # Show cards (but keep one dealer card hidden)
-    playing = True
-    
-    while playing:  # recall this variable from our hit_or_stand function
+    tableDeck = Deck()
+    tableDeck.shuffle()
 
-        hitOrStand_answer = input("Do you HIT (H) or STAND (S): (H/S): ")
-        # Prompt for Player to Hit or Stand
-        
-        print("Dealer's cards: ")
-        card_i = 0
-        for card in dealerHand.cards:
-            if(card_i < len(dealerHand.cards)-1):
-                print("[]", ' '.join(card))
-            card_i += 1
-        
-        print("[]", "HIDDEN CARD")
+    playerHand = Hand()
+    playerHand.takeCard(tableDeck.drawCard())
+    playerHand.takeCard(tableDeck.drawCard())
 
-        # Show cards (but keep one dealer card hidden)
+    dealerHand = Hand()
+    dealerHand.takeCard(tableDeck.drawCard())
+    dealerHand.takeCard(tableDeck.drawCard())
 
-        print("Your cards: ")
-        print(playerHand)
-        
-        # If player's hand exceeds 21, run player_busts() and break out of loop
+    print("Dealer's cards: ")
+    print("[]", ' '.join(dealerHand.cards[0]))
+    print("[]", "HIDDEN CARD")
 
-        if(playerHand.value() > 21):
-            playerHand.busts(deck=tableDeck)
-            break
+    print("Your cards: ")
+    print(playerHand)
 
-        while(dealerHand.value() <= 17):
-            dealerHand.takeCard(tableDeck.drawCard())
+    if playerHand.value() == 21 or dealerHand.value() == 21:
+        print("Dealer's Hand:\n", dealerHand, "Points: ", dealerHand.value())
+        print("Player's Hand:\n", playerHand, "Points: ", playerHand.value())
+        if playerHand.value() == dealerHand.value():
+            print("Push!")
+            casinoBank.deposit(pot)
+        elif playerHand.value() == 21:
+            print("Blackjack! You win!")
+            playerBank.deposit(pot * 2)
+            casinoBank.deposit(pot)
+        else:
+            print("Dealer wins!")
+    else:
+        playing = True
+        while playing:
+            hitOrStand_answer = input("Do you HIT (H) or STAND (S): (H/S): ").strip().upper()
 
-        print("Dealer's Hand:\n", dealerHand)
+            if hitOrStand_answer == 'H':
+                playerHand.hit(tableDeck)
+                print("Your cards: ")
+                print(playerHand)
 
-        print("Player's Hand:\n", playerHand)
-        
-        # If Player hasn't busted, play Dealer's hand until Dealer reaches 17
-        
-        
-            # Show all cards
-        
-            # Run different winning scenarios
-            
-        
-        # Inform Player of their chips total 
-        
-        # Ask to play again
+                if playerHand.busts():
+                    print("You busted! Dealer wins.")
+                    playing = False
+            elif hitOrStand_answer == 'S':
+                playing = False
+            else:
+                print("Please enter H or S.")
 
-            #break
+        if not playerHand.busts():
+            while dealerHand.value() < 17:
+                dealerHand.takeCard(tableDeck.drawCard())
+
+            print("Dealer's Hand:\n", dealerHand, "Points: ", dealerHand.value())
+            print("Player's Hand:\n", playerHand, "Points: ", playerHand.value())
+
+            if dealerHand.value() > 21:
+                print("Dealer busts! You win!")
+                playerBank.deposit(pot * 2)
+                casinoBank.deposit(pot)
+            elif dealerHand.value() > playerHand.value():
+                print("Dealer wins!")
+            elif dealerHand.value() < playerHand.value():
+                print("You win!")
+                playerBank.deposit(pot * 2)
+                casinoBank.deposit(pot)
+            else:
+                print("Push!")
+                casinoBank.deposit(pot)
+
+    print(f"Your final balance is: {playerBank.balance}")
+    playAgain = input("Do you want to play again? (Y/N): ").strip().upper()
+    if playAgain != 'Y':
+        print("Thanks for playing at Streaks Casino!")
+        break
