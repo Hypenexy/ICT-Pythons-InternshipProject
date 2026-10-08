@@ -4,6 +4,14 @@ dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
 
 def userChoice(message, response_type, range):
+    """
+    Asks user for an input
+
+    :param str message: Message to appear on terminal
+    :param str response_type: If the expected response is an int
+    :param list range: The range of numbers if the expected response is an int
+    :return: User's input
+    """
     inputting = True
     while inputting:
         choice = input(message)
@@ -47,7 +55,8 @@ class Menu:
         with open(website_list_path) as f:
             lines = f.read().splitlines()
 
-        print("0 🌐 Choose your own URL")
+        print("-1 Back to Main Menu")
+        print("0  Choose your own URL")
         n = 0
         for line in lines:
             spaces = ""
@@ -56,7 +65,7 @@ class Menu:
             n += 1
             print(str(n) + spaces + " 🌐 " + line)
 
-        website_choice = userChoice("Choose which website to scrape (number): ", "int", [0,len(lines)])
+        website_choice = userChoice("Choose which website to scrape (number): ", "int", [-1,len(lines)])
 
         url = lines[website_choice-1]
 
@@ -76,30 +85,36 @@ class Menu:
 
 class Spider:
     def __init__(self):
-        self.headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0'}
-        pass
+        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
 
     def crawl(self, url):
         req = Request(
             url, 
             headers=self.headers
         )
-
         crawling = True
         while crawling:
             print("Connecting to: " + url)
             try:
-                website_request = urlopen(req)
+                # Send a request to a specific url with the Spider class's
+                request = Request(url, headers=self.headers)
+                website_request = urlopen(request)
                 print("Connected!")
+
+                # Decode the html binary data to a str and get a status code
                 website_content = website_request.read().decode("utf-8")
+                status_code = website_request.getcode()
+                
+                print("Status Code: ", status_code)
             except Exception as e:
                 print("Error occured during GET request:")
                 print(e)
                 return "unsuccessfull"
             else:
-                print("five black dudes")
                 return website_content
-
+class Parser:
+    pass
 
 
 def init():
