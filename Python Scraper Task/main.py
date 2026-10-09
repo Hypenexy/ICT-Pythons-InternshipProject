@@ -67,14 +67,21 @@ class Menu:
 
         website_choice = userChoice("Choose which website to scrape (number): ", "int", [-1,len(lines)])
 
-        url = lines[website_choice-1]
+        if(website_choice == -1):
+            self.main()
+        else:
+            if(website_choice == 0):
+                url = userChoice("URL: ", None, None)
+            else:
+                url = lines[website_choice-1]
 
-        website_content = self.spider.crawl(url=url)
+            website_content = self.spider.crawl(url=url)
 
-        if(website_content == "unsuccessfull"):
-            self.retryMenu()
+            # Change this to status codes!
+            if(website_content == "unsuccessfull"):
+                self.retryMenu()
 
-        print(website_content)
+            print(website_content)
 
     def retryMenu():
         print("Do you want to retry?")
@@ -83,16 +90,22 @@ class Menu:
         print("3. Back to Main Menu")
         choice = userChoice("Select how to proceed (number): ", "int", [1,3])
 
+
+
+    # def pageActions(): 
+
 class Spider:
     def __init__(self):
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        
 
     def crawl(self, url):
-        req = Request(
-            url, 
-            headers=self.headers
-        )
+        """
+        Crawls a specific URL
+
+        :param self self: Class parameter for headers
+        :param str url: The URL to be sent a GET request
+        :return: Dict with keys: "body" - the response content, "status-code" the http status code 
+        """
         crawling = True
         while crawling:
             print("Connecting to: " + url)
@@ -112,7 +125,10 @@ class Spider:
                 print(e)
                 return "unsuccessfull"
             else:
-                return website_content
+                return {
+                    "body": website_content,
+                    "status_code": status_code
+                }
 class Parser:
     pass
 
