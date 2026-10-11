@@ -1,5 +1,7 @@
 import os
 from urllib.request import Request, urlopen
+import datetime
+from dataclasses import dataclass
 dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
 
@@ -33,14 +35,29 @@ def userChoice(message, response_type, range):
             return choice
 
 def closeApp():
+    """
+    Gracefully exit the program
+    """
     print(exit)
     exit()
+
+@dataclass
+class ScrapeResult:
+    url: str
+    website: str
+    status_code: int
+    size: int
+
 
 class Menu:
     def __init__(self, spider):
         self.spider = spider
-        
+
+    
     def main(self):
+        """
+        Displays the main menu of the program, prompts the user for next menu or exit
+        """
         print("Web Scraper")
         print("Where to next?")
         print()
@@ -51,7 +68,12 @@ class Menu:
         choice = userChoice("Select Menu (number): ", "int", [1, 3])
         if(choice == 1):
             self.website_selection()
+
+
     def website_selection(self):
+        """
+        Prompts the user with website selection while showing options from websites.txt
+        """
         with open(website_list_path) as f:
             lines = f.read().splitlines()
 
@@ -75,13 +97,14 @@ class Menu:
             else:
                 url = lines[website_choice-1]
 
-            website_content = self.spider.crawl(url=url)
+            response_content = self.spider.crawl(url=url)
 
             # Change this to status codes!
-            if(website_content == "unsuccessfull"):
+            if(response_content.status_code >= 200 and response_content.status_code <=299):
                 self.retryMenu()
 
-            print(website_content)
+            self.pageActions(website_content=response_content.body)
+
 
     def retryMenu():
         print("Do you want to retry?")
@@ -91,8 +114,23 @@ class Menu:
         choice = userChoice("Select how to proceed (number): ", "int", [1,3])
 
 
+    def pageActions(self, website_content):
+        print("Page content downloaded, how do you want to proceed")
+        print("1. Scrape and display info")
+        print("2. Save content")
+        print("3. Scrape and save")
+        print("4. Back to Main Menu")
+        choice = userChoice("Choose an action (number): ", "int", [1,4])
+        parser = Parser(website_content=website_content)
+        if choice == 4:
+            self.main()
+        elif choice == 1:
+            parser
+        elif choice == 2:
+            parser.save_content()
+        else: # Scrape and save
+            pass
 
-    # def pageActions(): 
 
 class Spider:
     def __init__(self):
@@ -129,8 +167,24 @@ class Spider:
                     "body": website_content,
                     "status_code": status_code
                 }
+
+
 class Parser:
+    def __init__(self, website_content):
+        self.website_content = website_content
+
+    def save_content(self):
+        try:
+            ct = datetime.datetime.now()
+            # filename = f"{}{ct}.index"
+            with open("index.html", "w") as f:
+                f.write(self.website_content)
+        except:
+            return False
+        else:
+            return True
     pass
+
 
 
 def init():
