@@ -1,7 +1,10 @@
 import os
 from urllib.request import Request, urlopen
 import datetime
+from urllib.parse import urlparse
+
 from dataclasses import dataclass
+
 dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
 
@@ -100,33 +103,36 @@ class Menu:
             response_content = self.spider.crawl(url=url)
 
             # Change this to status codes!
-            if(response_content.status_code >= 200 and response_content.status_code <=299):
-                self.retryMenu()
+            if(response_content["status_code"] is not None and 200 <= response_content["status_code"] <= 299):
+                self.pageActions(url=url, website_content=response_content["body"])
+            else:
+                self.retry_subMenu()
 
-            self.pageActions(website_content=response_content.body)
 
 
-    def retryMenu():
+    def retry_subMenu():
         print("Do you want to retry?")
         print("1. Retry")
         print("2. Continue")
         print("3. Back to Main Menu")
         choice = userChoice("Select how to proceed (number): ", "int", [1,3])
+        return choice
 
 
-    def pageActions(self, website_content):
+    def pageActions(self, url, website_content):
         print("Page content downloaded, how do you want to proceed")
         print("1. Scrape and display info")
         print("2. Save content")
         print("3. Scrape and save")
         print("4. Back to Main Menu")
         choice = userChoice("Choose an action (number): ", "int", [1,4])
-        parser = Parser(website_content=website_content)
+        parser = Parser(url=url, website_content=website_content)
         if choice == 4:
             self.main()
         elif choice == 1:
             parser
         elif choice == 2:
+            print("going to save!")
             parser.save_content()
         else: # Scrape and save
             pass
@@ -147,22 +153,26 @@ class Spider:
         crawling = True
         while crawling:
             print("Connecting to: " + url)
+            status_code = None
             try:
                 # Send a request to a specific url with the Spider class's
                 request = Request(url, headers=self.headers)
                 website_request = urlopen(request)
                 print("Connected!")
 
-                # Decode the html binary data to a str and get a status code
-                website_content = website_request.read().decode("utf-8")
                 status_code = website_request.getcode()
                 
                 print("Status Code: ", status_code)
             except Exception as e:
                 print("Error occured during GET request:")
                 print(e)
-                return "unsuccessfull"
+                return {
+                    "body": "",
+                    "status_code": status_code
+                }
             else:
+                # Decode the html binary data to a str and get a status code
+                website_content = website_request.read().decode("utf-8")
                 return {
                     "body": website_content,
                     "status_code": status_code
@@ -170,16 +180,21 @@ class Spider:
 
 
 class Parser:
-    def __init__(self, website_content):
+    def __init__(self, url, website_content):
+        self.url = url
         self.website_content = website_content
 
     def save_content(self):
         try:
-            ct = datetime.datetime.now()
-            # filename = f"{}{ct}.index"
-            with open("index.html", "w") as f:
+            print("i am saving it!!!")
+            ct = "a"# datetime.datetime.now().replace(' ', '')
+            domain = urlparse(self.url).netloc
+            filename = f"{domain}{ct}.index"
+            with open(filename, "w") as f:
                 f.write(self.website_content)
-        except:
+        except Exception as e:
+            print("Failed writing to file:")
+            print(e)
             return False
         else:
             return True
