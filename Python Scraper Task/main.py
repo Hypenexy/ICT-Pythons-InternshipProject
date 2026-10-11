@@ -8,7 +8,9 @@ import json
 
 # from dataclasses import dataclass
 
-session_data = []
+scraped_sites = []
+saved_files_locations = []
+data_types = []
 
 dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
@@ -46,6 +48,16 @@ def closeApp():
     """
     Gracefully exit the program
     """
+    print("---=*= Session summary =*=---")
+    print("Site URLs that have been scraped:")
+    for site in scraped_sites:
+        print(site)
+    print("Saved files' locations:")
+    for location in saved_files_locations:
+        print(location)
+    print("Data Types collected:")
+    for type in data_types:
+        print(type)
     print(exit)
     exit()
 
@@ -135,24 +147,29 @@ class Menu:
 
 
     def pageActions(self, url, website_content):
+        scraped_sites.append(url)
         print("Page content downloaded, how do you want to proceed")
-        print("1. Scrape and display info")
-        print("2. Save content")
-        print("3. Scrape and save")
+        print("1. Scrape and save parsed data and HTML")
+        print("2. Scrape and display parsed info")
+        print("3. Save HTML body")
         print("4. Do nothing")
         choice = userChoice("Choose an action (number): ", "int", [1,4])
         parser = Parser(url=url, website_content=website_content)
         if choice == 4:
             self.main()
         elif choice == 1:
-            parser
-        elif choice == 2:
+            parser.save_content()
+            parser.extract_content()
+            self.main()
+        elif choice == 3:
             print("Attempting to save to file in working directory...")
             parser.save_content()
             self.main()
-        else: # Scrape and save
-            parser.save_content()
-            parser.extract_content()
+        else: # Scrape and display
+            list = parser.extract_content(isReturn=True)
+            print("Here's the data collected from the website:")
+            for item in list:
+                print(item)
             self.main()
 
 
@@ -216,6 +233,7 @@ class Parser:
             while os.path.exists(f"{domain}-{i}.index"):
                 i += 1
 
+            saved_files_locations.append(f"{domain}-{i}.index")
             with open(f"{domain}-{i}.index", "w", encoding="utf-8") as f:
                 f.write(self.website_content)
                 
@@ -227,7 +245,7 @@ class Parser:
         else:
             return True
 
-    def extract_content(self):
+    def extract_content(self, isReturn):
         domain = urlparse(self.url).netloc
 
         if(domain == "www.mobile.bg"):
@@ -253,15 +271,21 @@ class Parser:
                     "kilometers": html.unescape(km.strip()),
                     "location": html.unescape(location.strip())
                 })
+            
+            data_types.append("car")
+
+            if(isReturn):
+                return cars
 
             i = 0
             while os.path.exists(f"{domain}-featured_cars-{i}.json"):
                 i += 1
 
+            saved_files_locations.append(f"{domain}-featured_cars-{i}.json")
             with open(f"{domain}-featured_cars-{i}.json", "w", encoding="utf-8") as f:
                 json.dump(cars, f, ensure_ascii=False, indent=4)
 
-            print(f"Successfully saved {len(cars)} featured cars data to '{output_file}'.")
+            print(f"Successfully saved {len(cars)} featured cars data to '{domain}-featured_cars-{i}.json'.")
 
 
 def init():
