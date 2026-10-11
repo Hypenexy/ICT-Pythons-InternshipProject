@@ -1,9 +1,14 @@
 import os
 from urllib.request import Request, urlopen
-import datetime
+# import datetime
 from urllib.parse import urlparse
+import re
+import html
+import json
 
-from dataclasses import dataclass
+# from dataclasses import dataclass
+
+session_data = []
 
 dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
@@ -44,12 +49,12 @@ def closeApp():
     print(exit)
     exit()
 
-@dataclass
-class ScrapeResult:
-    url: str
-    website: str
-    status_code: int
-    size: int
+# @dataclass
+# class ScrapeResult:
+#     url: str
+#     website: str
+#     status_code: int
+#     size: int
 
 
 class Menu:
@@ -100,20 +105,30 @@ class Menu:
             else:
                 url = lines[website_choice-1]
 
-            response_content = self.spider.crawl(url=url)
+            attemptingResponse = True
+            while(attemptingResponse):
+                response_content = self.spider.crawl(url=url)
 
-            # Change this to status codes!
-            if(response_content["status_code"] is not None and 200 <= response_content["status_code"] <= 299):
-                self.pageActions(url=url, website_content=response_content["body"])
-            else:
-                self.retry_subMenu()
+                # Change this to status codes!
+                if(response_content["status_code"] is not None and 200 <= response_content["status_code"] <= 299):
+                    attemptingResponse = False
+                    self.pageActions(url=url, website_content=response_content["body"])
+                else:
+                    retryChoice = self.retry_subMenu()
+                    if(retryChoice == 1): # Retry
+                        continue
+                    elif(retryChoice == 2): # Continue
+                        attemptingResponse = False
+                        self.pageActions(url=url, website_content=response_content["body"])
+                    else:
+                        attemptingResponse = False
+                        self.main()
 
 
-
-    def retry_subMenu():
+    def retry_subMenu(self):
         print("Do you want to retry?")
         print("1. Retry")
-        print("2. Continue")
+        print("2. Continue with errors")
         print("3. Back to Main Menu")
         choice = userChoice("Select how to proceed (number): ", "int", [1,3])
         return choice
@@ -124,7 +139,7 @@ class Menu:
         print("1. Scrape and display info")
         print("2. Save content")
         print("3. Scrape and save")
-        print("4. Back to Main Menu")
+        print("4. Do nothing")
         choice = userChoice("Choose an action (number): ", "int", [1,4])
         parser = Parser(url=url, website_content=website_content)
         if choice == 4:
@@ -132,10 +147,13 @@ class Menu:
         elif choice == 1:
             parser
         elif choice == 2:
-            print("going to save!")
+            print("Attempting to save to file in working directory...")
             parser.save_content()
+            self.main()
         else: # Scrape and save
-            pass
+            parser.save_content()
+            parser.extract_content()
+            self.main()
 
 
 class Spider:
@@ -152,7 +170,7 @@ class Spider:
         """
         crawling = True
         while crawling:
-            print("Connecting to: " + url)
+            print("Connecting... to: " + url)
             status_code = None
             try:
                 # Send a request to a specific url with the Spider class's
@@ -172,7 +190,14 @@ class Spider:
                 }
             else:
                 # Decode the html binary data to a str and get a status code
-                website_content = website_request.read().decode("utf-8")
+                # Also attempt to fix cyrillic encoding
+                raw_content = website_request.read()
+                encoding = website_request.headers.get_content_charset() or "utf-8"
+                try:
+                    website_content = raw_content.decode(encoding)
+                except UnicodeDecodeError:
+                    website_content = raw_content.decode("windows-1251", errors="replace")
+
                 return {
                     "body": website_content,
                     "status_code": status_code
@@ -186,20 +211,57 @@ class Parser:
 
     def save_content(self):
         try:
-            print("i am saving it!!!")
-            ct = "a"# datetime.datetime.now().replace(' ', '')
             domain = urlparse(self.url).netloc
-            filename = f"{domain}{ct}.index"
-            with open(filename, "w") as f:
+            i = 0
+            while os.path.exists(f"{domain}-{i}.index"):
+                i += 1
+
+            with open(f"{domain}-{i}.index", "w", encoding="utf-8") as f:
                 f.write(self.website_content)
+                
+
         except Exception as e:
             print("Failed writing to file:")
             print(e)
             return False
         else:
             return True
-    pass
 
+    def extract_content(self):
+        domain = urlparse(self.url).netloc
+
+        if(domain == "www.mobile.bg"):
+            item_pattern = re.compile(
+                r'<div class="item">\s*<a href="([^"]+)".*?'
+                r'<img[^>]+src="[^"]+"[^>]*>\s*'
+                r'<img[^>]+src="([^"]+)"[^>]+alt="Снимка [^"]*".*?'
+                r'<div class="ime">(.*?)</div>\s*'
+                r'<div class="cena[^"]*">(.*?)</div>\s*'
+                r'<div class="km">\((.*?)\)</div>\s*'
+                r'<div class="grad">\s*<span>(.*?)</span>',
+                re.DOTALL
+            )
+
+            cars = []
+            for match in item_pattern.finditer(self.website_content):
+                link, img_src, name, price, km, location = match.groups()
+                cars.append({
+                    "link": html.unescape(link.strip()),
+                    "image": html.unescape(img_src.strip()),
+                    "name": html.unescape(name.strip()),
+                    "price": html.unescape(price.strip()),
+                    "kilometers": html.unescape(km.strip()),
+                    "location": html.unescape(location.strip())
+                })
+
+            i = 0
+            while os.path.exists(f"{domain}-featured_cars-{i}.json"):
+                i += 1
+
+            with open(f"{domain}-featured_cars-{i}.json", "w", encoding="utf-8") as f:
+                json.dump(cars, f, ensure_ascii=False, indent=4)
+
+            print(f"Successfully saved {len(cars)} featured cars data to '{output_file}'.")
 
 
 def init():
@@ -207,14 +269,5 @@ def init():
     menu = Menu(spider)
 
     menu.main()
-
-    # website_content = spider.crawl(url=url)
-
-
-    # with open("index.html", "w") as f:
-    #     f.write(website_content)
-
-
-    # print(website_content)
 
 init()
