@@ -1,6 +1,6 @@
 import os
 from urllib.request import Request, urlopen
-from urllib.parse import urlparse
+from urllib.parse import quote, urljoin, urlparse
 import re
 import html
 import json
@@ -85,6 +85,28 @@ class Menu:
         else:
             print("Data saved to: not available")
 
+    def search_car(self):
+        brand = userChoice("Enter car brand: ", None, None).strip()
+        while not brand:
+            print("Brand cannot be empty.")
+            brand = userChoice("Enter car brand: ", None, None).strip()
+
+        model = userChoice("Enter car model: ", None, None).strip()
+        while not model:
+            print("Model cannot be empty.")
+            model = userChoice("Enter car model: ", None, None).strip()
+
+        def make_slug(value):
+            slug = re.sub(r"[\s_]+", "-", value.lower()).strip("-")
+            slug = re.sub(r"-+", "-", slug)
+            return quote(slug, safe="-")
+
+        url = (
+            "https://www.mobile.bg/obiavi/avtomobili-dzhipove/"
+            f"{make_slug(brand)}/{make_slug(model)}"
+        )
+        return url
+
     def main(self):
         """
         Displays the main menu of the program, prompts the user for next menu or exit
@@ -160,6 +182,14 @@ class Menu:
             print("URL cannot be empty.")
             self.main()
             return
+
+        if urlparse(url).netloc.lower() in {"mobile.bg", "www.mobile.bg"}:
+            print("Mobile.bg")
+            print("1. Scrape this page (default featured cars)")
+            print("2. Search by brand and model")
+            mobile_choice = userChoice("Choose an option (number): ", "int", [1, 2])
+            if mobile_choice == 2:
+                url = self.search_car()
 
         attempting_response = True
         while attempting_response:
@@ -313,34 +343,94 @@ class Parser:
         return self.last_output_path
 
     def extract_content(self, isReturn):
-        domain = urlparse(self.url).netloc
+        parsed_url = urlparse(self.url)
+        domain = parsed_url.netloc.lower()
 
-        if(domain == "www.mobile.bg"):
-            item_pattern = re.compile(
-                r'<div class="item">\s*<a href="([^"]+)".*?'
-                r'<img[^>]+src="[^"]+"[^>]*>\s*'
-                r'<img[^>]+src="([^"]+)"[^>]+alt="Снимка [^"]*".*?'
-                r'<div class="ime">(.*?)</div>\s*'
-                r'<div class="cena[^"]*">(.*?)</div>\s*'
-                r'<div class="km">\((.*?)\)</div>\s*'
-                r'<div class="grad">\s*<span>(.*?)</span>',
-                re.DOTALL
-            )
-
+        if domain in {"www.mobile.bg", "mobile.bg"}:
             data_types["car"] = 0
             cars = []
-            for match in item_pattern.finditer(self.website_content):
-                data_types["car"] += 1
-                link, img_src, name, price, km, location = match.groups()
-                cars.append({
-                    "link": html.unescape(link.strip()),
-                    "image": html.unescape(img_src.strip()),
-                    "name": html.unescape(name.strip()),
-                    "price": html.unescape(price.strip()),
-                    "kilometers": html.unescape(km.strip()),
-                    "location": html.unescape(location.strip()),
-                })
+            if not parsed_url.path.strip("/"):
+                item_pattern = re.compile(
+                    r'<div class="item">\s*<a href="([^"]+)".*?'
+                    r'<img[^>]+src="[^"]+"[^>]*>\s*'
+                    r'<img[^>]+src="([^"]+)"[^>]+alt="Снимка [^"]*".*?'
+                    r'<div class="ime">(.*?)</div>\s*'
+                    r'<div class="cena[^"]*">(.*?)</div>\s*'
+                    r'<div class="km">\((.*?)\)</div>\s*'
+                    r'<div class="grad">\s*<span>(.*?)</span>',
+                    re.DOTALL | re.IGNORECASE,
+                )
+                for match in item_pattern.finditer(self.website_content):
+                    link, image, name, price, kilometers, location = match.groups()
+                    data_types["car"] += 1
+                    cars.append({
+                        "link": urljoin(self.url, html.unescape(link.strip())),
+                        "image": urljoin(self.url, html.unescape(image.strip())),
+                        "name": html.unescape(name.strip()),
+                        "price": html.unescape(price.strip()),
+                        "kilometers": html.unescape(kilometers.strip()),
+                        "location": html.unescape(location.strip()),
+                    })
+            else:
+                title_pattern = re.compile(
+                    r'<a\s+href="([^"]+)"\s+class="title saveSlink"[^>]*>(.*?)</a>',
+                    re.IGNORECASE | re.DOTALL,
+                )
+                title_matches = list(title_pattern.finditer(self.website_content))
+                for index, title_match in enumerate(title_matches):
+                    segment_end = (
+                        title_matches[index + 1].start()
+                        if index + 1 < len(title_matches)
+                        else len(self.website_content)
+                    )
+                    listing_content = self.website_content[title_match.end():segment_end]
+                    link, name = title_match.groups()
+                    name = html.unescape(re.sub(r"<[^>]+>", " ", name))
+                    name = re.sub(r"\s+", " ", name).strip()
 
+                    price_match = re.search(
+                        r'<div class="price[^"]*">\s*<div>(.*?)</div>',
+                        listing_content,
+                        re.IGNORECASE | re.DOTALL,
+                    )
+                    price = ""
+                    if price_match:
+                        price = html.unescape(
+                            re.sub(r"<[^>]+>", " ", price_match.group(1))
+                        )
+                        price = re.sub(r"\s+", " ", price).strip()
+
+                    params_match = re.search(
+                        r'<div class="params">(.*?)</div>',
+                        listing_content,
+                        re.IGNORECASE | re.DOTALL,
+                    )
+                    parameters = ""
+                    if params_match:
+                        parameters = html.unescape(
+                            re.sub(r"<[^>]+>", " ", params_match.group(1))
+                        )
+                        parameters = re.sub(r"\s+", " ", parameters).strip()
+
+                    kilometers_match = re.search(
+                        r"(\d[\d\s]*(?:[,.]\d+)?)\s*км\b",
+                        parameters,
+                        re.IGNORECASE,
+                    )
+                    kilometers = (
+                        re.sub(r"\s+", " ", kilometers_match.group(1)).strip()
+                        if kilometers_match
+                        else ""
+                    )
+
+                    data_types["car"] += 1
+                    cars.append({
+                        "link": urljoin(self.url, html.unescape(link.strip())),
+                        "name": name,
+                        "price": price,
+                        "kilometers": kilometers,
+                        "parameters": parameters,
+                    })
 
             if(isReturn):
                 return cars
