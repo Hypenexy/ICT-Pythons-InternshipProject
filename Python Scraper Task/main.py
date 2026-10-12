@@ -10,7 +10,7 @@ import json
 
 scraped_sites = []
 saved_files_locations = []
-data_types = []
+data_types = {}
 
 dirname = os.path.dirname(__file__)
 website_list_path = os.path.join(dirname, 'websites.txt')
@@ -48,17 +48,21 @@ def closeApp():
     """
     Gracefully exit the program
     """
+
     print("---=*= Session summary =*=---")
     print("Site URLs that have been scraped:")
     for site in scraped_sites:
         print(site)
+
+
     print("Saved files' locations:")
     for location in saved_files_locations:
-        print(location)
-    print("Data Types collected:")
+        print(os.path.join(dirname, location))
+
+
+    print("Data Types collected and the number of records:")
     for type in data_types:
-        print(type)
-    print(exit)
+        print(f"{type} x {data_types[type]}")
     exit()
 
 # @dataclass
@@ -88,6 +92,33 @@ class Menu:
         choice = userChoice("Select Menu (number): ", "int", [1, 3])
         if(choice == 1):
             self.website_selection()
+        elif(choice == 2):
+            self.options()
+        else:
+            closeApp()
+
+
+    def options(self):
+        """View and change the User-Agent used for requests."""
+        while True:
+            print("Options")
+            print(f"Current User-Agent: {self.spider.headers['User-Agent']}")
+            print("1. Change User-Agent")
+            print("2. Restore default User-Agent")
+            print("3. Back to Main Menu")
+            choice = userChoice("Select an option (number): ", "int", [1, 3])
+
+            if choice == 1:
+                user_agent = userChoice("Enter User-Agent: ", None, None).strip()
+                if user_agent:
+                    self.spider.headers["User-Agent"] = user_agent
+                else:
+                    print("User-Agent cannot be empty.")
+            elif choice == 2:
+                self.spider.headers["User-Agent"] = self.spider.default_user_agent
+            else:
+                self.main()
+                return
 
 
     def website_selection(self):
@@ -159,7 +190,7 @@ class Menu:
             self.main()
         elif choice == 1:
             parser.save_content()
-            parser.extract_content()
+            parser.extract_content(isReturn=False)
             self.main()
         elif choice == 3:
             print("Attempting to save to file in working directory...")
@@ -175,7 +206,8 @@ class Menu:
 
 class Spider:
     def __init__(self):
-        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        self.default_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        self.headers = {"User-Agent": self.default_user_agent}
 
     def crawl(self, url):
         """
@@ -245,6 +277,21 @@ class Parser:
         else:
             return True
 
+    def save_json(self, filename, data):
+        domain = urlparse(self.url).netloc
+        i = 0
+        output_file = f"{domain}-{filename}-{i}.json"
+        while os.path.exists(output_file):
+            i += 1
+            output_file = f"{domain}-{filename}-{i}.json"
+
+        saved_files_locations.append(output_file)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+        description = filename.replace("_", " ")
+        print(f"Successfully saved {len(data)} {description} data to '{output_file}'.")
+
     def extract_content(self, isReturn):
         domain = urlparse(self.url).netloc
 
@@ -260,8 +307,10 @@ class Parser:
                 re.DOTALL
             )
 
+            data_types["car"] = 0
             cars = []
             for match in item_pattern.finditer(self.website_content):
+                data_types["car"] += 1
                 link, img_src, name, price, km, location = match.groups()
                 cars.append({
                     "link": html.unescape(link.strip()),
@@ -272,26 +321,205 @@ class Parser:
                     "location": html.unescape(location.strip())
                 })
             
-            data_types.append("car")
 
             if(isReturn):
                 return cars
 
-            i = 0
-            while os.path.exists(f"{domain}-featured_cars-{i}.json"):
-                i += 1
+            featured_cars = "featured_cars"
+            self.save_json(featured_cars, cars)
 
-            saved_files_locations.append(f"{domain}-featured_cars-{i}.json")
-            with open(f"{domain}-featured_cars-{i}.json", "w", encoding="utf-8") as f:
-                json.dump(cars, f, ensure_ascii=False, indent=4)
+        if(domain == "murlev.com"):
+            data_types["link"] = 0
+            links = []
 
-            print(f"Successfully saved {len(cars)} featured cars data to '{domain}-featured_cars-{i}.json'.")
+            a_tags_pattern = re.compile(r'(<a\b[^>]*>.*?</a>)', re.DOTALL | re.IGNORECASE)
+            extracted_links = a_tags_pattern.findall(self.website_content)
+            for idx, tag in enumerate(extracted_links, 1):
+                data_types["link"] += 1
+                links.append(f"[{idx}] {tag}")
+            
+            if(isReturn):
+                return links
+            
+            self.save_json("links", links)
+
+        if(domain == "midelight.net"):
+            data_types["title"] = 0
+            title = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                data_types["title"] += 1
+                page_title = html.unescape(title_match.group(1).strip())
+                title.append(page_title)
+
+            if(isReturn):
+                return title
+            
+            self.save_json("title", title)
+
+        if(domain in ["soundmart.bg"]):
+            data_types["store_info"] = 0
+            store_info = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                page_title = html.unescape(re.sub(r'\s+', ' ', title_match.group(1)).strip())
+                data_types["store_info"] += 1
+                store_info.append(f"Title: {page_title}")
+
+            description_match = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if description_match:
+                description = html.unescape(re.sub(r'\s+', ' ', description_match.group(1)).strip())
+                if description:
+                    data_types["store_info"] += 1
+                    store_info.append(f"Description: {description}")
+
+            jsonld_match = re.search(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if jsonld_match:
+                jsonld_text = jsonld_match.group(1)
+                org_name_match = re.search(r'"name":"([^"]+)"', jsonld_text)
+                if org_name_match:
+                    org_name = html.unescape(org_name_match.group(1))
+                    data_types["store_info"] += 1
+                    store_info.append(f"Organization: {org_name}")
+
+            if not store_info:
+                store_info.append("No structured information found on the Soundmart homepage.")
+
+            if(isReturn):
+                return store_info
+
+            self.save_json("store_info", store_info)
+
+        if(domain in ["www.muziker.bg"]):
+            data_types["muziker_info"] = 0
+            muziker_info = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                page_title = html.unescape(re.sub(r'\s+', ' ', title_match.group(1)).strip())
+                data_types["muziker_info"] += 1
+                muziker_info.append(f"Title: {page_title}")
+
+            meta_description = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if meta_description:
+                description = html.unescape(re.sub(r'\s+', ' ', meta_description.group(1)).strip())
+                if description:
+                    data_types["muziker_info"] += 1
+                    muziker_info.append(f"Description: {description}")
+
+            languages = re.findall(r'<link[^>]+hreflang="[^"]+"[^>]+href="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if languages:
+                preview = languages[:5]
+                data_types["muziker_info"] += 1
+                muziker_info.append(f"Regional sites: {', '.join(preview)}")
+
+            if not muziker_info:
+                muziker_info.append("No structured information found on the Muziker homepage.")
+
+            if(isReturn):
+                return muziker_info
+
+            self.save_json("muziker_info", muziker_info)
+
+        if(domain in ["www.marica.bg"]):
+            data_types["article_info"] = 0
+            article_info = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                page_title = html.unescape(re.sub(r'\s+', ' ', title_match.group(1)).strip())
+                data_types["article_info"] += 1
+                article_info.append(f"Title: {page_title}")
+
+            description_match = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if description_match:
+                description = html.unescape(re.sub(r'\s+', ' ', description_match.group(1)).strip())
+                if description:
+                    data_types["article_info"] += 1
+                    article_info.append(f"Description: {description}")
+
+            paragraphs = []
+            for paragraph in re.findall(r'<p[^>]*>(.*?)</p>', self.website_content, re.IGNORECASE | re.DOTALL):
+                cleaned = re.sub(r'<[^>]+>', ' ', paragraph)
+                cleaned = html.unescape(re.sub(r'\s+', ' ', cleaned).strip())
+                if cleaned:
+                    paragraphs.append(cleaned)
+
+            if paragraphs:
+                lead = paragraphs[0]
+                data_types["article_info"] += 1
+                article_info.append(f"Lead paragraph: {lead[:400]}")
+
+            image_matches = re.findall(r'<img[^>]+src="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if image_matches:
+                data_types["article_info"] += 1
+                article_info.append(f"Featured image: {image_matches[0]}")
+
+            if not article_info:
+                article_info.append("No structured information found on the Marica article page.")
+
+            if(isReturn):
+                return article_info
+
+            self.save_json("article_info", article_info)
+
+        if(domain == "wikipedia.org"):
+            data_types["wikipedia_info"] = 0
+            wikipedia_info = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                page_title = html.unescape(title_match.group(1).strip())
+                data_types["wikipedia_info"] += 1
+                wikipedia_info.append(f"Title: {page_title}")
+
+            slogan_match = re.search(
+                r'<strong[^>]*class="[^"]*localized-slogan[^"]*"[^>]*>(.*?)</strong>',
+                self.website_content,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if slogan_match:
+                slogan = re.sub(r'<[^>]+>', '', slogan_match.group(1))
+                slogan = html.unescape(slogan.strip())
+                if slogan:
+                    data_types["wikipedia_info"] += 1
+                    wikipedia_info.append(f"Slogan: {slogan}")
+
+            featured_langs = re.findall(
+                r'<div\s+class="central-featured-lang[^"]*"\s+lang="([^"]+)"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*title="([^"]+)"[^>]*data-slogan="([^"]+)"',
+                self.website_content,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if featured_langs:
+                wikipedia_info.append("Featured language links:")
+                for language, href, title, slogan in featured_langs[:5]:
+                    normalized_link = href
+                    if normalized_link.startswith("//"):
+                        normalized_link = "https:" + normalized_link
+                    data_types["wikipedia_info"] += 1
+                    wikipedia_info.append(f"- {language.upper()}: {html.unescape(title)} ({html.unescape(slogan)}) -> {normalized_link}")
+
+            if not wikipedia_info:
+                wikipedia_info.append("No structured information found on the Wikipedia homepage.")
+
+            if(isReturn):
+                return wikipedia_info
+
+            self.save_json("interesting_info", wikipedia_info)
+
 
 
 def init():
     spider = Spider()
     menu = Menu(spider)
 
-    menu.main()
+    try:
+        menu.main()
+    except KeyboardInterrupt:
+        print()
+        closeApp()
 
-init()
+if __name__ == "__main__":
+    init()
