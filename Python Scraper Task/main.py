@@ -1,12 +1,9 @@
 import os
 from urllib.request import Request, urlopen
-# import datetime
 from urllib.parse import urlparse
 import re
 import html
 import json
-
-# from dataclasses import dataclass
 
 scraped_sites = []
 saved_files_locations = []
@@ -24,25 +21,28 @@ def userChoice(message, response_type, range):
     :param list range: The range of numbers if the expected response is an int
     :return: User's input
     """
-    inputting = True
-    while inputting:
-        choice = input(message)
-        if(response_type == "int"):
+    while True:
+        try:
+            choice = input(message)
+        except (EOFError, KeyboardInterrupt):
+            print("\nInput stream closed. Exiting gracefully.")
+            closeApp()
+
+        if response_type == "int":
             try:
                 choice = int(choice)
             except ValueError:
                 print("Please input a number")
-            else:
-                if(isinstance(range, list)):
-                    if(choice < range[0] or choice > range[1]):
-                        print(f"Selection is out of range! Please select from {range[0]} to {range[1]}")
-                        continue
-                inputting = False
-                return choice
+                continue
 
-        else:
-            inputting = False
+            if isinstance(range, list):
+                if choice < range[0] or choice > range[1]:
+                    print(f"Selection is out of range! Please select from {range[0]} to {range[1]}")
+                    continue
             return choice
+
+        return choice
+
 
 def closeApp():
     """
@@ -54,16 +54,14 @@ def closeApp():
     for site in scraped_sites:
         print(site)
 
-
     print("Saved files' locations:")
     for location in saved_files_locations:
         print(os.path.join(dirname, location))
 
-
     print("Data Types collected and the number of records:")
-    for type in data_types:
-        print(f"{type} x {data_types[type]}")
-    exit()
+    for item_type in data_types:
+        print(f"{item_type} x {data_types[item_type]}")
+    raise SystemExit(0)
 
 # @dataclass
 # class ScrapeResult:
@@ -77,7 +75,16 @@ class Menu:
     def __init__(self, spider):
         self.spider = spider
 
-    
+    def print_scrape_summary(self, url, records, data_label, output_file=None):
+        print("\nScraping completed successfully.")
+        print(f"Website: {url}")
+        print(f"Data scraped: {data_label}")
+        print(f"Records collected: {len(records) if isinstance(records, list) else records}")
+        if output_file:
+            print(f"Data saved to: {output_file}")
+        else:
+            print("Data saved to: not available")
+
     def main(self):
         """
         Displays the main menu of the program, prompts the user for next menu or exit
@@ -90,9 +97,9 @@ class Menu:
         print("3. Exit")
         print()
         choice = userChoice("Select Menu (number): ", "int", [1, 3])
-        if(choice == 1):
+        if choice == 1:
             self.website_selection()
-        elif(choice == 2):
+        elif choice == 2:
             self.options()
         else:
             closeApp()
@@ -125,47 +132,52 @@ class Menu:
         """
         Prompts the user with website selection while showing options from websites.txt
         """
-        with open(website_list_path) as f:
-            lines = f.read().splitlines()
+        try:
+            with open(website_list_path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except FileNotFoundError:
+            print("Website list not found. Please check the project directory.")
+            self.main()
+            return
 
         print("-1 Back to Main Menu")
         print("0  Choose your own URL")
-        n = 0
-        for line in lines:
-            spaces = ""
-            if(len(lines)>9 and n<9):
-                spaces = " "
-            n += 1
-            print(str(n) + spaces + " 🌐 " + line)
+        for index, line in enumerate(lines, start=1):
+            print(f"{index}. {line}")
 
-        website_choice = userChoice("Choose which website to scrape (number): ", "int", [-1,len(lines)])
+        website_choice = userChoice("Choose which website to scrape (number): ", "int", [-1, len(lines)])
 
         if(website_choice == -1):
             self.main()
+            return
+
+        if(website_choice == 0):
+            url = userChoice("URL: ", None, None).strip()
         else:
-            if(website_choice == 0):
-                url = userChoice("URL: ", None, None)
+            url = lines[website_choice - 1]
+
+        if not url:
+            print("URL cannot be empty.")
+            self.main()
+            return
+
+        attempting_response = True
+        while attempting_response:
+            response_content = self.spider.crawl(url=url)
+
+            if response_content["status_code"] is not None and 200 <= response_content["status_code"] <= 299:
+                attempting_response = False
+                self.pageActions(url=url, website_content=response_content["body"])
             else:
-                url = lines[website_choice-1]
-
-            attemptingResponse = True
-            while(attemptingResponse):
-                response_content = self.spider.crawl(url=url)
-
-                # Change this to status codes!
-                if(response_content["status_code"] is not None and 200 <= response_content["status_code"] <= 299):
-                    attemptingResponse = False
+                retry_choice = self.retry_subMenu()
+                if retry_choice == 1:
+                    continue
+                elif retry_choice == 2:
+                    attempting_response = False
                     self.pageActions(url=url, website_content=response_content["body"])
                 else:
-                    retryChoice = self.retry_subMenu()
-                    if(retryChoice == 1): # Retry
-                        continue
-                    elif(retryChoice == 2): # Continue
-                        attemptingResponse = False
-                        self.pageActions(url=url, website_content=response_content["body"])
-                    else:
-                        attemptingResponse = False
-                        self.main()
+                    attempting_response = False
+                    self.main()
 
 
     def retry_subMenu(self):
@@ -184,24 +196,33 @@ class Menu:
         print("2. Scrape and display parsed info")
         print("3. Save HTML body")
         print("4. Do nothing")
-        choice = userChoice("Choose an action (number): ", "int", [1,4])
+        choice = userChoice("Choose an action (number): ", "int", [1, 4])
+        
         parser = Parser(url=url, website_content=website_content)
+
         if choice == 4:
             self.main()
-        elif choice == 1:
-            parser.save_content()
-            parser.extract_content(isReturn=False)
-            self.main()
-        elif choice == 3:
-            print("Attempting to save to file in working directory...")
-            parser.save_content()
-            self.main()
-        else: # Scrape and display
-            list = parser.extract_content(isReturn=True)
-            print("Here's the data collected from the website:")
-            for item in list:
-                print(item)
-            self.main()
+            return
+
+        try:
+            if choice == 1:
+                parser.save_content()
+                extracted_data = parser.extract_content(isReturn=False)
+                self.print_scrape_summary(url, extracted_data, "Parsed page data", parser.last_output_path)
+            elif choice == 3:
+                print("Attempting to save to file in working directory...")
+                output_path = parser.save_content()
+                self.print_scrape_summary(url, [], "HTML body", output_path)
+            else: # Scrape and display
+                extracted_data = parser.extract_content(isReturn=True)
+                print("Here's the data collected from the website:")
+                for item in extracted_data:
+                    print(item)
+                self.print_scrape_summary(url, extracted_data, "Parsed page data")
+        except Exception as exc:
+            print(f"Error while processing website data: {exc}")
+
+        self.main()
 
 
 class Spider:
@@ -215,20 +236,17 @@ class Spider:
 
         :param self self: Class parameter for headers
         :param str url: The URL to be sent a GET request
-        :return: Dict with keys: "body" - the response content, "status-code" the http status code 
+        :return: Dict with keys: "body" - the response content, "status-code" the http status code
         """
         crawling = True
         while crawling:
             print("Connecting... to: " + url)
             status_code = None
             try:
-                # Send a request to a specific url with the Spider class's
                 request = Request(url, headers=self.headers)
-                website_request = urlopen(request)
+                website_request = urlopen(request, timeout=20)
                 print("Connected!")
-
                 status_code = website_request.getcode()
-                
                 print("Status Code: ", status_code)
             except Exception as e:
                 print("Error occured during GET request:")
@@ -238,8 +256,6 @@ class Spider:
                     "status_code": status_code
                 }
             else:
-                # Decode the html binary data to a str and get a status code
-                # Also attempt to fix cyrillic encoding
                 raw_content = website_request.read()
                 encoding = website_request.headers.get_content_charset() or "utf-8"
                 try:
@@ -257,25 +273,27 @@ class Parser:
     def __init__(self, url, website_content):
         self.url = url
         self.website_content = website_content
+        self.last_output_path = None
 
     def save_content(self):
         try:
             domain = urlparse(self.url).netloc
             i = 0
-            while os.path.exists(f"{domain}-{i}.index"):
+            file_name = f"{domain}-{i}.index"
+            while os.path.exists(file_name):
                 i += 1
+                file_name = f"{domain}-{i}.index"
 
-            saved_files_locations.append(f"{domain}-{i}.index")
-            with open(f"{domain}-{i}.index", "w", encoding="utf-8") as f:
+            saved_files_locations.append(file_name)
+            self.last_output_path = os.path.join(dirname, file_name)
+            with open(file_name, "w", encoding="utf-8") as f:
                 f.write(self.website_content)
-                
-
         except Exception as e:
             print("Failed writing to file:")
             print(e)
-            return False
+            return None
         else:
-            return True
+            return self.last_output_path
 
     def save_json(self, filename, data):
         domain = urlparse(self.url).netloc
@@ -286,11 +304,13 @@ class Parser:
             output_file = f"{domain}-{filename}-{i}.json"
 
         saved_files_locations.append(output_file)
+        self.last_output_path = os.path.join(dirname, output_file)
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
         description = filename.replace("_", " ")
         print(f"Successfully saved {len(data)} {description} data to '{output_file}'.")
+        return self.last_output_path
 
     def extract_content(self, isReturn):
         domain = urlparse(self.url).netloc
@@ -318,15 +338,15 @@ class Parser:
                     "name": html.unescape(name.strip()),
                     "price": html.unescape(price.strip()),
                     "kilometers": html.unescape(km.strip()),
-                    "location": html.unescape(location.strip())
+                    "location": html.unescape(location.strip()),
                 })
-            
+
 
             if(isReturn):
                 return cars
 
-            featured_cars = "featured_cars"
-            self.save_json(featured_cars, cars)
+            self.save_json("featured_cars", cars)
+            return cars
 
         if(domain == "murlev.com"):
             data_types["link"] = 0
@@ -337,11 +357,12 @@ class Parser:
             for idx, tag in enumerate(extracted_links, 1):
                 data_types["link"] += 1
                 links.append(f"[{idx}] {tag}")
-            
+
             if(isReturn):
                 return links
-            
+
             self.save_json("links", links)
+            return links
 
         if(domain == "midelight.net"):
             data_types["title"] = 0
@@ -355,10 +376,11 @@ class Parser:
 
             if(isReturn):
                 return title
-            
-            self.save_json("title", title)
 
-        if(domain in ["soundmart.bg"]):
+            self.save_json("title", title)
+            return title
+
+        if(domain == "soundmart.bg"):
             data_types["store_info"] = 0
             store_info = []
 
@@ -391,8 +413,9 @@ class Parser:
                 return store_info
 
             self.save_json("store_info", store_info)
+            return store_info
 
-        if(domain in ["www.muziker.bg"]):
+        if(domain == "www.muziker.bg"):
             data_types["muziker_info"] = 0
             muziker_info = []
 
@@ -422,8 +445,9 @@ class Parser:
                 return muziker_info
 
             self.save_json("muziker_info", muziker_info)
+            return muziker_info
 
-        if(domain in ["www.marica.bg"]):
+        if(domain == "www.marica.bg"):
             data_types["article_info"] = 0
             article_info = []
 
@@ -464,6 +488,71 @@ class Parser:
                 return article_info
 
             self.save_json("article_info", article_info)
+            return article_info
+
+        if domain in ["www.plovdiv24.bg", "plovdiv24.bg"]:
+            data_types["plovdiv24_info"] = 0
+            plovdiv_info = []
+
+            title_match = re.search(r'<title>(.*?)</title>', self.website_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                page_title = html.unescape(re.sub(r'\s+', ' ', title_match.group(1)).strip())
+                data_types["plovdiv24_info"] += 1
+                plovdiv_info.append(f"Title: {page_title}")
+
+            description_match = re.search(r'<meta[^>]+name="description"[^>]+content="([^"]+)"', self.website_content, re.IGNORECASE | re.DOTALL)
+            if description_match:
+                description = html.unescape(re.sub(r'\s+', ' ', description_match.group(1)).strip())
+                if description:
+                    data_types["plovdiv24_info"] += 1
+                    plovdiv_info.append(f"Description: {description}")
+
+            lead_match = re.search(
+                r'<h2[^>]*class="[^"]*lead-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+                self.website_content,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if lead_match:
+                lead_url, lead_title = lead_match.groups()
+                cleaned_title = html.unescape(re.sub(r'<[^>]+>', ' ', lead_title))
+                cleaned_title = re.sub(r'\s+', ' ', cleaned_title).strip()
+                if cleaned_title:
+                    data_types["plovdiv24_info"] += 2
+                    plovdiv_info.append(f"Top story: {cleaned_title}")
+                    plovdiv_info.append(f"Top story link: {lead_url}")
+
+            headline_matches = re.findall(
+                r'<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+                self.website_content,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if headline_matches:
+                headlines = []
+                lead_title_text = None
+                if lead_match:
+                    lead_title_text = html.unescape(re.sub(r'<[^>]+>', ' ', lead_match.group(2)))
+                    lead_title_text = re.sub(r'\s+', ' ', lead_title_text).strip()
+
+                for url, title in headline_matches[:5]:
+                    cleaned_title = html.unescape(re.sub(r'<[^>]+>', ' ', title))
+                    cleaned_title = re.sub(r'\s+', ' ', cleaned_title).strip()
+                    if cleaned_title and cleaned_title != lead_title_text and cleaned_title not in headlines:
+                        headlines.append(cleaned_title)
+
+                if headlines:
+                    data_types["plovdiv24_info"] += len(headlines)
+                    plovdiv_info.append("Latest headlines:")
+                    for headline in headlines:
+                        plovdiv_info.append(f"- {headline}")
+
+            if not plovdiv_info:
+                plovdiv_info.append("No structured information found on the Plovdiv24 homepage.")
+
+            if isReturn:
+                return plovdiv_info
+
+            self.save_json("plovdiv24_info", plovdiv_info)
+            return plovdiv_info
 
         if(domain == "wikipedia.org"):
             data_types["wikipedia_info"] = 0
@@ -504,10 +593,13 @@ class Parser:
             if not wikipedia_info:
                 wikipedia_info.append("No structured information found on the Wikipedia homepage.")
 
-            if(isReturn):
+            if isReturn:
                 return wikipedia_info
 
             self.save_json("interesting_info", wikipedia_info)
+            return wikipedia_info
+
+        return []
 
 
 
